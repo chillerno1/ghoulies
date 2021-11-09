@@ -51,6 +51,11 @@ const GhoulieCountdown = (props) => {
             walletObj["allowedToMint"] +
             " free ghoulies. You've minted: " +
             walletObj["mintedFree"]
+          : walletObj["allowedToMint"] == walletObj["mintedFree"]
+          ? "Thanks for minting! " +
+            walletObj["mintedFree"] +
+            "/" +
+            walletObj["allowedToMint"]
           : "Minting temporarily closed to non-ghoulie holders."}
       </p>
       <Countdown
@@ -425,6 +430,12 @@ const Hero = (props: HomeProps) => {
                             walletObj["allowedToMint"] +
                             " free ghoulies. You've minted: " +
                             walletObj["mintedFree"]
+                          : walletObj["allowedToMint"] ==
+                            walletObj["mintedFree"]
+                          ? "Thanks for minting! " +
+                            walletObj["mintedFree"] +
+                            "/" +
+                            walletObj["allowedToMint"]
                           : "Minting temporarily closed to non-ghoulie holders."}
                       </p>
                       <button

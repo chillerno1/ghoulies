@@ -2,6 +2,7 @@
 import React, { FC } from "react";
 import { useEffect, useState, useMemo } from "react";
 import Countdown from "react-countdown";
+import useSWR, { mutate } from "swr";
 
 import * as anchor from "@project-serum/anchor";
 
@@ -27,16 +28,31 @@ export interface HomeProps {
   startDate: number;
   treasury: anchor.web3.PublicKey;
   txTimeout: number;
+  baggedGhoulies: Array<string>;
 }
+
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 const GhoulieCountdown = (props) => {
   let startDate = props.startDate;
   let setIsActive = props.setIsActive;
   let content = props.content;
+  let walletCanMint = props.walletCanMint;
+  let walletObj = props.walletObj;
+  let wallet = props.wallet;
 
   return (
     <div className="mt-4 text-base sm:text-xl lg:text-lg xl:text-xl letter-spacing3 text-center">
-      <p style={{ color: "#FFD051" }}>Full release now available</p>
+      <p style={{ color: "#FFD051", whiteSpace: "break-spaces" }}>
+        {!wallet
+          ? "Full release now available"
+          : walletCanMint
+          ? "Thanks for supporting Ghoulie Gang!\n Allowed to mint " +
+            walletObj["allowedToMint"] +
+            " free ghoulies. You've minted: " +
+            walletObj["mintedFree"]
+          : "Minting temporarily closed to non-ghoulie holders."}
+      </p>
       <Countdown
         date={startDate.getTime()}
         onMount={({ completed }) => completed && setIsActive(true)}
@@ -127,6 +143,39 @@ const Hero = (props: HomeProps) => {
   );
   const [candyMachine, setCandyMachine] = useState<CandyMachine>();
 
+  const baggedGhoulies = props.baggedGhoulies;
+
+  const { data, error } = useSWR("/api/get-addys", fetcher, {
+    initialData: { baggedGhoulies },
+  });
+
+  const addBaggedGhoulies = async (pubkey, allowedToMint, mintedFree) => {
+    const res = await fetch("/api/snapshot-bagged-ghoulies", {
+      body: JSON.stringify({
+        id: pubkey,
+        allowedToMint: allowedToMint,
+        mintedFree: mintedFree,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+
+    const { error } = await res.json();
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    mutate("/api/get-addys");
+  };
+
+  if (error) {
+    console.error(error);
+  }
+
   let startDateInThePast = startDate <= new Date();
 
   const wallet = useAnchorWallet();
@@ -162,70 +211,100 @@ const Hero = (props: HomeProps) => {
     })();
   };
 
-  const onMint = async () => {
+  let isJsonString = (str) => {
     try {
-      setIsMinting(true);
-      if (wallet && candyMachine?.program) {
-        const mintTxId = await mintOneToken(
-          candyMachine,
-          props.config,
-          wallet.publicKey,
-          props.treasury
-        );
+      JSON.parse(str);
+    } catch (e) {
+      return false;
+    }
+    return true;
+  };
 
-        const status = await awaitTransactionSignatureConfirmation(
-          mintTxId,
-          props.txTimeout,
-          props.connection,
-          "singleGossip",
-          false
-        );
+  let maybeWalletObj = data?.baggedGhoulies[wallet?.publicKey?.toBase58()];
+  let walletObj = isJsonString(maybeWalletObj)
+    ? JSON.parse(maybeWalletObj)
+    : null;
 
-        if (!status?.err) {
-          setAlertState({
-            open: true,
-            message: "Congratulations! Mint succeeded!",
-            severity: "success",
-          });
+  let walletCanMint =
+    walletObj == null
+      ? false
+      : walletObj["mintedFree"] < walletObj["allowedToMint"];
+
+  const onMint = async () => {
+    if (walletCanMint) {
+      try {
+        setIsMinting(true);
+        if (wallet && candyMachine?.program) {
+          const mintTxId = await mintOneToken(
+            candyMachine,
+            props.config,
+            wallet.publicKey,
+            props.treasury
+          );
+
+          const status = await awaitTransactionSignatureConfirmation(
+            mintTxId,
+            props.txTimeout,
+            props.connection,
+            "singleGossip",
+            false
+          );
+
+          if (!status?.err) {
+            setAlertState({
+              open: true,
+              message: "Congratulations! Mint succeeded!",
+              severity: "success",
+            });
+            let { mintedFree, allowedToMint } = JSON.parse(
+              data["baggedGhoulies"][wallet?.publicKey?.toBase58()]
+            );
+
+            addBaggedGhoulies(
+              wallet?.publicKey?.toBase58(),
+              allowedToMint,
+              mintedFree + 1
+            );
+          } else {
+            setAlertState({
+              open: true,
+              message: "Mint failed! Please try again!",
+              severity: "error",
+            });
+          }
+        }
+      } catch (error: any) {
+        // TODO: blech:
+        let message = error.msg || "Minting failed! Please try again!";
+        if (!error.msg) {
+          if (error.message.indexOf("0x138")) {
+          } else if (error.message.indexOf("0x137")) {
+            message = `SOLD OUT!`;
+          } else if (error.message.indexOf("0x135")) {
+            message = `Insufficient funds to mint. Please fund your wallet.`;
+          }
         } else {
-          setAlertState({
-            open: true,
-            message: "Mint failed! Please try again!",
-            severity: "error",
-          });
+          if (error.code === 311) {
+            message = `SOLD OUT!`;
+            setIsSoldOut(true);
+          } else if (error.code === 312) {
+            message = `Minting period hasn't started yet.`;
+          }
         }
-      }
-    } catch (error: any) {
-      // TODO: blech:
-      let message = error.msg || "Minting failed! Please try again!";
-      if (!error.msg) {
-        if (error.message.indexOf("0x138")) {
-        } else if (error.message.indexOf("0x137")) {
-          message = `SOLD OUT!`;
-        } else if (error.message.indexOf("0x135")) {
-          message = `Insufficient funds to mint. Please fund your wallet.`;
-        }
-      } else {
-        if (error.code === 311) {
-          message = `SOLD OUT!`;
-          setIsSoldOut(true);
-        } else if (error.code === 312) {
-          message = `Minting period hasn't started yet.`;
-        }
-      }
 
-      setAlertState({
-        open: true,
-        message,
-        severity: "error",
-      });
-    } finally {
-      if (wallet) {
-        const balance = await props.connection.getBalance(wallet.publicKey);
-        setBalance(balance / LAMPORTS_PER_SOL);
+        setAlertState({
+          open: true,
+          message,
+          severity: "error",
+        });
+      } finally {
+        if (wallet) {
+          const balance = await props.connection.getBalance(wallet.publicKey);
+          setBalance(balance / LAMPORTS_PER_SOL);
+        }
+        setIsMinting(false);
+        refreshCandyMachineState();
       }
-      setIsMinting(false);
-      refreshCandyMachineState();
     }
   };
 
@@ -327,15 +406,36 @@ const Hero = (props: HomeProps) => {
                       startDate={startDate}
                       setIsActive={setIsActive}
                       content={content}
+                      walletCanMint={walletCanMint}
+                      walletObj={walletObj}
+                      wallet={wallet}
                     />
                   ) : isActive ? (
                     <div className="mt-4 text-base sm:text-xl lg:text-lg xl:text-xl letter-spacing3 text-center">
-                      <p style={{ color: "#FFD051" }}>
-                        Full release now available
+                      <p
+                        style={{
+                          color: "#FFD051",
+                          whiteSpace: "break-spaces",
+                        }}
+                      >
+                        {!wallet
+                          ? "Full release now available"
+                          : walletCanMint
+                          ? "Thanks for supporting Ghoulie Gang!\n Allowed to mint " +
+                            walletObj["allowedToMint"] +
+                            " free ghoulies. You've minted: " +
+                            walletObj["mintedFree"]
+                          : "Minting temporarily closed to non-ghoulie holders."}
                       </p>
                       <button
-                        className="mint-button my-6"
-                        disabled={isSoldOut || isMinting || !isActive}
+                        className={
+                          !walletCanMint || isSoldOut
+                            ? "mint-button my-6 disable-but"
+                            : "mint-button my-6"
+                        }
+                        disabled={
+                          isSoldOut || isMinting || !isActive || !walletCanMint
+                        }
                         onClick={onMint}
                         // variant="contained"
                       >
@@ -345,7 +445,7 @@ const Hero = (props: HomeProps) => {
                           isMinting ? (
                             <CircularProgress />
                           ) : (
-                            "MINT FOR 0.4"
+                            "MINT FOR FREE"
                           )
                         ) : (
                           // Shouldn't get here.
@@ -353,6 +453,9 @@ const Hero = (props: HomeProps) => {
                             startDate={startDate}
                             setIsActive={setIsActive}
                             content={content}
+                            walletCanMint={walletCanMint}
+                            walletObj={walletObj}
+                            wallet={wallet}
                           />
                         )}
                       </button>
@@ -362,6 +465,9 @@ const Hero = (props: HomeProps) => {
                       startDate={startDate}
                       setIsActive={setIsActive}
                       content={content}
+                      walletCanMint={walletCanMint}
+                      walletObj={walletObj}
+                      wallet={wallet}
                     />
                   )}
                 </div>

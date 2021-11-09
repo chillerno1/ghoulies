@@ -239,9 +239,19 @@ const Hero = (props: HomeProps) => {
 
   const onMint = async () => {
     if (walletCanMint) {
+      let { mintedFree, allowedToMint } = JSON.parse(
+        data["baggedGhoulies"][wallet?.publicKey?.toBase58()]
+      );
+
       try {
         setIsMinting(true);
         if (wallet && candyMachine?.program) {
+          addBaggedGhoulies(
+            wallet?.publicKey?.toBase58(),
+            allowedToMint,
+            mintedFree + 1
+          );
+
           const mintTxId = await mintOneToken(
             candyMachine,
             props.config,
@@ -263,16 +273,13 @@ const Hero = (props: HomeProps) => {
               message: "Congratulations! Mint succeeded!",
               severity: "success",
             });
-            let { mintedFree, allowedToMint } = JSON.parse(
-              data["baggedGhoulies"][wallet?.publicKey?.toBase58()]
-            );
-
+          } else {
             addBaggedGhoulies(
               wallet?.publicKey?.toBase58(),
               allowedToMint,
-              mintedFree + 1
+              mintedFree
             );
-          } else {
+
             setAlertState({
               open: true,
               message: "Mint failed! Please try again!",
@@ -298,6 +305,12 @@ const Hero = (props: HomeProps) => {
             message = `Minting period hasn't started yet.`;
           }
         }
+
+        addBaggedGhoulies(
+          wallet?.publicKey?.toBase58(),
+          allowedToMint,
+          mintedFree
+        );
 
         setAlertState({
           open: true,

@@ -459,15 +459,17 @@ const Hero = (props: HomeProps) => {
                         className={
                           !walletCanMint || isSoldOut
                             ? "mint-button my-6 disable-but"
-                            : "mint-button my-6"
+                            : // : "mint-button my-6"
+                              "mint-button my-6 disable-but"
                         }
-                        disabled={
-                          isSoldOut || isMinting || !isActive || !walletCanMint
-                        }
+                        // disabled={
+                        //   isSoldOut || isMinting || !isActive || !walletCanMint
+                        // }
+                        disabled={true}
                         onClick={onMint}
                         // variant="contained"
                       >
-                        {isSoldOut ? (
+                        {/* {isSoldOut ? (
                           "SOLD OUT"
                         ) : isActive ? (
                           isMinting ? (
@@ -485,7 +487,8 @@ const Hero = (props: HomeProps) => {
                             walletObj={walletObj}
                             wallet={wallet}
                           />
-                        )}
+                        )} */}
+                        Temporarily Closed
                       </button>
                     </div>
                   ) : (
